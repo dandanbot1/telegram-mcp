@@ -10,9 +10,34 @@ If you are a Grok Bot told to *“setup telegram for me as per https://github.co
 
 Highlights the playbook encodes:
 
-- Local listener `127.0.0.1:8787` is the Telegram front; Grok Bot webhook is **wake-only**.
+- **Per-agent data dir** (`TELEGRAM_MCP_DATA_DIR`) and a **unique listener port** — required on a shared Grok Bot box.
+- Local listener `127.0.0.1:<port>` is the Telegram front; Grok Bot webhook is **wake-only**.
 - **Debounce** ~2s per chat (`src/agent-wake.js`) so one agent run drains the whole spool (≤1 reply per batch).
-- **smee URL rule:** setWebhook uses the **smee channel root only** — never append `/telegram-webhook` (that causes Telegram 404). `smee-forward` maps channel → `http://127.0.0.1:8787/telegram-webhook`.
+- **smee URL rule:** setWebhook uses the **smee channel root only** — never append `/telegram-webhook` (that causes Telegram 404). `smee-forward` maps channel → `http://127.0.0.1:<port>/telegram-webhook`.
+
+## Multi-tenancy (shared box)
+
+On a shared Grok Bot box, **each agent is a separate tenant**:
+
+| Concern | Rule |
+|---------|------|
+| Data dir | `TELEGRAM_MCP_DATA_DIR=~/.local/telegram-mcp/agents/<agent-id>` (**required**) |
+| Port | Unique `TELEGRAM_WEBHOOK_PORT` (or `agents/<id>/port` file); never share one port |
+| Per-tenant secrets | **MUST** each have own `token`, `whitelist.json`, `webhook-secret`, `public-url`, `agent-wake-url`, `agent-wake-key`, and `port` under that DATA_DIR |
+| Wake credentials | **Forbidden** to copy `agent-wake-url` / `agent-wake-key` from another agent (wakes the wrong Grok Bot) |
+| Shared root | `~/.local/telegram-mcp/` may hold only a README warning — **not** live token/whitelist/wake/public-url/webhook-secret for any agent |
+| Isolation | Sibling agents must **not** read or write another agent’s dir |
+| BotFather | **One BotFather bot per Grok Bot** — never reuse another agent’s bot |
+
+Helpers:
+
+```bash
+# Print export lines for this agent
+eval "$(bash scripts/agent-env.sh <agent-id>)"
+
+# List tenants (bot @username + port only; no secrets)
+bash scripts/print-tenant.sh
+```
 
 ## Architecture
 
@@ -23,11 +48,11 @@ Telegram
 public HTTPS relay (cloudflared / smee.io)
    │
    ▼
-127.0.0.1:8787  webhook-listener   ← Telegram front (local)
+127.0.0.1:<port>  webhook-listener   ← Telegram front (local, per agent)
    │
    ├─ secret-token check
    ├─ whitelist check  (non-whitelist → 200, no spool, no wake)
-   ├─ atomic spool write  ~/.local/telegram-mcp/spool/<update_id>.json
+   ├─ atomic spool write  $TELEGRAM_MCP_DATA_DIR/spool/<update_id>.json
    ├─ typing keepalive
    └─ POST agent wake (debounced ~2s/chat)  →  Grok Bot webhook routine
                               │
@@ -42,7 +67,7 @@ public HTTPS relay (cloudflared / smee.io)
 
 ## Whitelist
 
-File: `~/.local/telegram-mcp/whitelist.json` (mode `0600`):
+File: `$TELEGRAM_MCP_DATA_DIR/whitelist.json` (mode `0600`):
 
 ```json
 {
@@ -70,26 +95,32 @@ After a **whitelisted** update is durably spooled:
 Check without printing secrets:
 
 ```bash
+# with TELEGRAM_MCP_DATA_DIR set for this agent
 npm run check-wake
 # → agent-wake-url: yes/no, agent-wake-key: yes/no, header-mode, instant-wake
 ```
 
-Write URL/key via secret-request into `~/.local/telegram-mcp/agent-wake-{url,key}` (0600). See [SETUP.md](./SETUP.md).
+Write URL/key via secret-request into `$TELEGRAM_MCP_DATA_DIR/agent-wake-{url,key}` (0600). See [SETUP.md](./SETUP.md).
 
 ## Runtime files (not in git)
 
-Default data dir: `~/.local/telegram-mcp/` (`TELEGRAM_MCP_DATA_DIR` overrides).
+**Required on a shared box:** set `TELEGRAM_MCP_DATA_DIR` to `~/.local/telegram-mcp/agents/<agent-id>`.  
+Do **not** use the shared `~/.local/telegram-mcp/token` as the live store.
+
+Port resolution for the listener: `TELEGRAM_WEBHOOK_PORT` env → `$DATA_DIR/port` file → fallback `8787`.
 
 | Path | Purpose |
 |------|---------|
 | `token` | Bot token (0600). Or `TELEGRAM_BOT_TOKEN`. |
-| `webhook-secret` | Telegram `secret_token` / `X-Telegram-Bot-Api-Secret-Token` (0600; minted if missing). |
+| `port` | Optional listener port for this tenant (plain integer). |
+| `webhook-secret` | Telegram secret token (0600; minted if missing). |
 | `public-url` | Public HTTPS base for `setWebhook` (0600). |
 | `whitelist.json` | Allowed chat ids / usernames (0600). |
 | `allowed-chat-id` | Legacy single id; migrated into whitelist. |
 | `agent-wake-url` | Grok Bot webhook routine URL (0600). |
 | `agent-wake-key` | Wake sender key / secret (0600). |
 | `agent-wake-header` | Optional header mode (0600). |
+| `bot-username` | Cached `@username` from smoke (0600). |
 | `spool/*.json` | Pending inbound updates (whitelisted only). |
 | `spool/done/` | Acknowledged updates. |
 | `*.pid` / `logs/` | Supervisor state. |
@@ -106,21 +137,29 @@ npm install
 ## Supervisor
 
 ```bash
+eval "$(bash scripts/agent-env.sh <agent-id>)"
 npm run supervisor
 # detached:
-nohup bash scripts/supervisor.sh >>~/.local/telegram-mcp/logs/supervisor.log 2>&1 &
+mkdir -p "$TELEGRAM_MCP_DATA_DIR/logs"
+nohup bash scripts/supervisor.sh >>"$TELEGRAM_MCP_DATA_DIR/logs/supervisor.log" 2>&1 &
 ```
 
-On start: kill old PIDs, ensure webhook-secret, restart listener, then cloudflared (or **reuse** saved smee `public-url`) + `setWebhook`.
+On start: kill old PIDs **for this DATA_DIR only**, ensure webhook-secret, restart listener on this agent’s port, then cloudflared (or **reuse** saved smee `public-url`) + `setWebhook`. Does not touch sibling agents’ directories.
 
 ## MCP registration
+
+`AddMcpServer` **must** pass per-agent env (stdio connector):
 
 ```json
 {
   "mcpServers": {
     "telegram": {
       "command": "node",
-      "args": ["/absolute/path/to/telegram-mcp/src/mcp-server.js"]
+      "args": ["/absolute/path/to/telegram-mcp/src/mcp-server.js"],
+      "env": {
+        "TELEGRAM_MCP_DATA_DIR": "/home/box/.local/telegram-mcp/agents/<agent-id>",
+        "TELEGRAM_WEBHOOK_PORT": "<port>"
+      }
     }
   }
 }
@@ -145,7 +184,7 @@ Paste connector instructions from [SETUP.md](./SETUP.md#mcp-instructions-paste).
 
 ## Listener details
 
-- Binds `127.0.0.1:8787` only
+- Binds `127.0.0.1:<TELEGRAM_WEBHOOK_PORT>` only (from env, `$DATA_DIR/port`, or `8787`)
 - `GET /healthz` → `ok`
 - `POST /telegram-webhook`; 401 if secret wrong
 - Body limit ~1MB; atomic spool; idempotent
@@ -158,6 +197,7 @@ Paste connector instructions from [SETUP.md](./SETUP.md#mcp-instructions-paste).
 - **Secrets**: logs use `update_id`, status codes, hosts — never tokens/URLs/keys.
 - **cloudflared** optional; smee via `smee-forward.js` (channel root only for Telegram).
 - **Debounce**: do not wake once per message in a burst; one run drains the spool.
+- **Shared box**: never point two agents at the same DATA_DIR or the same port.
 
 ## License
 
