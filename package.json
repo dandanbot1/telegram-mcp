@@ -1,0 +1,29 @@
+{
+  "name": "telegram-mcp",
+  "version": "1.0.0",
+  "description": "OpenClaw-shaped Telegram inbound MCP server + webhook listener",
+  "type": "module",
+  "bin": {
+    "telegram-mcp": "./src/mcp-server.js"
+  },
+  "scripts": {
+    "mcp": "node ./src/mcp-server.js",
+    "webhook": "node ./src/webhook-listener.js",
+    "set-webhook": "node ./scripts/set-webhook.js",
+    "smoke": "node ./scripts/smoke-get-me.js",
+    "supervisor": "bash ./scripts/supervisor.sh",
+    "smee-forward": "node ./scripts/smee-forward.js",
+    "capture-chat-id": "node ./scripts/capture-chat-id-from-spool.js",
+    "send-prove": "node ./scripts/send-prove-message.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "smee-client": "^4.4.3",
+    "zod": "^3.24.0"
+  },
+  "license": "MIT",
+  "private": true
+}

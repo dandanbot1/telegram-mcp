@@ -1,0 +1,35 @@
+node_modules/
+.env
+.env.*
+*.pid
+*.log
+logs/
+logs/**
+spool/
+spool/**
+secrets/
+secrets/**
+.local/
+.local/**
+
+# Local runtime secrets / data (never commit)
+# Also ignore if someone copies runtime files into the repo tree
+token
+webhook-secret
+public-url
+allowed-chat-id
+bot-username
+*.token
+*.secret
+*secret*
+*token*
+*url*
+
+# Absolute path pattern (belt-and-suspenders; git ignores relative paths normally)
+/home/box/.local/telegram-mcp/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
