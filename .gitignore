@@ -13,19 +13,22 @@ secrets/**
 .local/**
 
 # Local runtime secrets / data (never commit)
-# Also ignore if someone copies runtime files into the repo tree
 token
 webhook-secret
 public-url
 allowed-chat-id
+whitelist.json
 bot-username
+agent-wake-url
+agent-wake-key
+agent-wake-header
 *.token
 *.secret
 *secret*
 *token*
 *url*
 
-# Absolute path pattern (belt-and-suspenders; git ignores relative paths normally)
+# Absolute path pattern (belt-and-suspenders)
 /home/box/.local/telegram-mcp/
 
 # OS / editor

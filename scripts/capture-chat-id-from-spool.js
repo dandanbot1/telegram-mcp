@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Scan spool for the first private message; write numeric chat id to
- * allowed-chat-id (0600). Prints ONLY the chat id number.
+ * Scan spool for the first private message; add chat id to whitelist
+ * (and write legacy allowed-chat-id for compatibility). Prints ONLY the chat id number.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,6 +11,7 @@ import {
   ALLOWED_CHAT_ID_PATH,
   DATA_DIR,
 } from '../src/paths.js';
+import { addChatId, ensureWhitelistFile } from '../src/whitelist.js';
 
 function listJsonFiles(dir) {
   try {
@@ -38,6 +39,8 @@ function extractPrivateChatId(update) {
 }
 
 function main() {
+  ensureWhitelistFile();
+
   const files = [
     ...listJsonFiles(SPOOL_DIR),
     ...listJsonFiles(SPOOL_DONE_DIR),
@@ -66,6 +69,9 @@ function main() {
     process.exit(1);
   }
 
+  addChatId(chatId);
+
+  // Also write legacy file for older helpers
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
   fs.writeFileSync(ALLOWED_CHAT_ID_PATH, `${chatId}\n`, { mode: 0o600 });
   try {

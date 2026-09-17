@@ -1,7 +1,7 @@
 {
   "name": "telegram-mcp",
-  "version": "1.0.0",
-  "description": "OpenClaw-shaped Telegram inbound MCP server + webhook listener",
+  "version": "1.1.0",
+  "description": "Generic Telegram interface for a Grok Bot agent (whitelist + spool + instant wake)",
   "type": "module",
   "bin": {
     "telegram-mcp": "./src/mcp-server.js"
@@ -14,7 +14,8 @@
     "supervisor": "bash ./scripts/supervisor.sh",
     "smee-forward": "node ./scripts/smee-forward.js",
     "capture-chat-id": "node ./scripts/capture-chat-id-from-spool.js",
-    "send-prove": "node ./scripts/send-prove-message.js"
+    "send-prove": "node ./scripts/send-prove-message.js",
+    "check-wake": "node ./scripts/check-wake-config.js"
   },
   "engines": {
     "node": ">=18"
