@@ -31,6 +31,7 @@ export const PUBLIC_URL_PATH = path.join(DATA_DIR, 'public-url');
 /** @deprecated Prefer WHITELIST_PATH; kept for migration. */
 export const ALLOWED_CHAT_ID_PATH = path.join(DATA_DIR, 'allowed-chat-id');
 export const WHITELIST_PATH = path.join(DATA_DIR, 'whitelist.json');
+export const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 export const BOT_USERNAME_PATH = path.join(DATA_DIR, 'bot-username');
 
 /** Instant wake: Grok Bot webhook routine URL + sender key (0600, not in git). */
