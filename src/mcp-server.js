@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Telegram MCP stdio server (official @modelcontextprotocol/sdk).
- * Never logs bot token, webhook secret, or full public webhook URL.
+ * Telegram MCP stdio server — generic Telegram interface for a Grok Bot agent.
+ * Official @modelcontextprotocol/sdk. Never logs bot token, webhook secret,
+ * wake URL/key, or full public webhook URL.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -20,6 +21,14 @@ import {
   SPOOL_DONE_DIR,
   HEALTHZ_URL,
 } from './paths.js';
+import {
+  loadWhitelist,
+  addChatId,
+  addUsername,
+  removeFromWhitelist,
+  ensureWhitelistFile,
+} from './whitelist.js';
+import { getWakeConfig } from './agent-wake.js';
 
 function textResult(obj) {
   return {
@@ -121,13 +130,14 @@ function ackSpool(updateId) {
 
 const server = new McpServer({
   name: 'telegram-mcp',
-  version: '1.0.0',
+  version: '1.1.0',
 });
 
 server.registerTool(
   'tg_get_me',
   {
-    description: 'Call Telegram getMe. Returns bot id, username, and name. Never exposes the token.',
+    description:
+      'Telegram interface for Grok Bot: call getMe. Returns bot id, username, and name. Never exposes the token.',
     inputSchema: {},
   },
   async () => {
@@ -151,7 +161,8 @@ server.registerTool(
 server.registerTool(
   'tg_send_message',
   {
-    description: 'Send a text message to a chat via Telegram Bot API.',
+    description:
+      'Telegram interface for Grok Bot: send a text message to a chat via Bot API.',
     inputSchema: {
       chat_id: z.union([z.string(), z.number()]).describe('Telegram chat id'),
       text: z.string().describe('Message text'),
@@ -178,7 +189,8 @@ server.registerTool(
 server.registerTool(
   'tg_send_chat_action',
   {
-    description: 'Send a chat action (default typing) to indicate the bot is working.',
+    description:
+      'Telegram interface for Grok Bot: send a chat action (default typing).',
     inputSchema: {
       chat_id: z.union([z.string(), z.number()]).describe('Telegram chat id'),
       action: z
@@ -201,7 +213,7 @@ server.registerTool(
   'tg_list_spool',
   {
     description:
-      'List pending inbound updates in spool/*.json (not done/). Returns update_id + summary only.',
+      'Telegram interface for Grok Bot: list pending inbound updates in spool/*.json (whitelisted only). Returns update_id + summary.',
     inputSchema: {},
   },
   async () => {
@@ -217,7 +229,8 @@ server.registerTool(
 server.registerTool(
   'tg_ack_spool',
   {
-    description: 'Acknowledge a spool item by moving spool/<update_id>.json to spool/done/.',
+    description:
+      'Telegram interface for Grok Bot: acknowledge a spool item by moving spool/<update_id>.json to spool/done/.',
     inputSchema: {
       update_id: z.union([z.string(), z.number()]).describe('Telegram update_id'),
     },
@@ -235,7 +248,7 @@ server.registerTool(
   'tg_webhook_info',
   {
     description:
-      'getWebhookInfo (redacted) plus local GET /healthz. Never returns secret_token or full URL with secrets.',
+      'Telegram interface for Grok Bot: getWebhookInfo (redacted) plus local GET /healthz and whether instant wake is configured (yes/no only). Never returns secrets or full URLs.',
     inputSchema: {},
   },
   async () => {
@@ -251,9 +264,11 @@ server.registerTool(
           error: e instanceof Error ? e.message : String(e),
         };
       }
+      const wake = getWakeConfig();
       return textResult({
         telegram: redactWebhookInfo(info),
         local_healthz,
+        instant_wake_configured: wake.configured,
       });
     } catch (err) {
       return errorResult(err);
@@ -265,7 +280,7 @@ server.registerTool(
   'tg_get_updates',
   {
     description:
-      'getUpdates for first-time setup ONLY. Do not use when a webhook is set — Telegram will reject or starve one mode. Prefer the webhook + spool path in production.',
+      'Telegram interface for Grok Bot: getUpdates for first-time setup ONLY. Do not use when a webhook is set. Prefer webhook + spool + agent wake in production.',
     inputSchema: {
       offset: z.number().optional().describe('Optional offset'),
       limit: z.number().optional().describe('Optional limit (1-100)'),
@@ -299,13 +314,103 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  'tg_whitelist_list',
+  {
+    description:
+      'Telegram interface for Grok Bot: list whitelist chat_ids and usernames (no secrets). Empty whitelist denies all inbound (except bootstrap /start).',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      ensureWhitelistFile();
+      const wl = loadWhitelist();
+      return textResult({
+        chat_ids: wl.chat_ids,
+        usernames: wl.usernames,
+        empty: wl.chat_ids.length === 0 && wl.usernames.length === 0,
+      });
+    } catch (err) {
+      return errorResult(err);
+    }
+  }
+);
+
+server.registerTool(
+  'tg_whitelist_add',
+  {
+    description:
+      'Telegram interface for Grok Bot: add a chat_id and/or username to the whitelist. Usernames without @; match is case-insensitive.',
+    inputSchema: {
+      chat_id: z.number().optional().describe('Telegram chat id (number)'),
+      username: z
+        .string()
+        .optional()
+        .describe('Telegram username without @'),
+    },
+  },
+  async ({ chat_id, username }) => {
+    try {
+      if (chat_id === undefined && (username === undefined || username === '')) {
+        return errorResult(new Error('Provide chat_id and/or username'));
+      }
+      ensureWhitelistFile();
+      let result = loadWhitelist();
+      const changes = [];
+      if (chat_id !== undefined) {
+        const r = addChatId(chat_id);
+        result = { chat_ids: r.chat_ids, usernames: r.usernames };
+        changes.push({ chat_id, added: r.added });
+      }
+      if (typeof username === 'string' && username.trim()) {
+        const r = addUsername(username);
+        result = { chat_ids: r.chat_ids, usernames: r.usernames };
+        changes.push({ username: username.replace(/^@/, '').toLowerCase(), added: r.added });
+      }
+      return textResult({ ...result, changes });
+    } catch (err) {
+      return errorResult(err);
+    }
+  }
+);
+
+server.registerTool(
+  'tg_whitelist_remove',
+  {
+    description:
+      'Telegram interface for Grok Bot: remove a chat_id and/or username from the whitelist.',
+    inputSchema: {
+      chat_id: z.number().optional().describe('Telegram chat id (number)'),
+      username: z
+        .string()
+        .optional()
+        .describe('Telegram username without @'),
+    },
+  },
+  async ({ chat_id, username }) => {
+    try {
+      if (chat_id === undefined && (username === undefined || username === '')) {
+        return errorResult(new Error('Provide chat_id and/or username'));
+      }
+      ensureWhitelistFile();
+      const result = removeFromWhitelist({ chat_id, username });
+      return textResult({
+        chat_ids: result.chat_ids,
+        usernames: result.usernames,
+        removed: result.removed,
+      });
+    } catch (err) {
+      return errorResult(err);
+    }
+  }
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
 main().catch((err) => {
-  // stderr only; never include secrets
   console.error('MCP server failed:', err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

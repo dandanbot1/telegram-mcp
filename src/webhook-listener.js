@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 /**
- * Local Telegram webhook listener.
- * Binds 127.0.0.1:8787 only. Never logs token or webhook secret.
+ * Local Telegram webhook listener — generic front for a Grok Bot agent.
+ * Binds 127.0.0.1:8787 only. Never logs token, webhook secret, or wake URL/key.
+ *
+ * Flow: validate secret → whitelist → spool → typing keepalive → agent wake.
+ * Non-whitelisted updates: 200 to Telegram, do NOT spool, do NOT wake.
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -10,16 +13,23 @@ import crypto from 'node:crypto';
 import {
   DATA_DIR,
   WEBHOOK_SECRET_PATH,
-  ALLOWED_CHAT_ID_PATH,
   SPOOL_DIR,
   SPOOL_DONE_DIR,
   LISTENER_HOST,
   LISTENER_PORT,
   WEBHOOK_PATH,
   TOKEN_PATH,
-  TELEGRAM_API_BASE,
 } from './paths.js';
 import { readToken, sendChatAction } from './telegram-api.js';
+import {
+  ensureWhitelistFile,
+  isAllowed,
+  isWhitelistEmpty,
+  bootstrapChatIdIfStart,
+  addChatId,
+  loadWhitelist,
+} from './whitelist.js';
+import { wakeAgent } from './agent-wake.js';
 
 const BODY_LIMIT = 1024 * 1024; // ~1MB
 const TYPING_INTERVAL_MS = 4000;
@@ -54,22 +64,11 @@ function loadOrMintSecret() {
   return secret;
 }
 
-function readAllowedChatId() {
-  try {
-    const raw = fs.readFileSync(ALLOWED_CHAT_ID_PATH, 'utf8').trim();
-    if (!raw) return null;
-    return raw;
-  } catch {
-    return null;
-  }
-}
-
 function safeEqualSecret(expected, provided) {
   if (typeof provided !== 'string' || provided.length === 0) return false;
   const a = Buffer.from(expected, 'utf8');
   const b = Buffer.from(provided, 'utf8');
   if (a.length !== b.length) {
-    // timingSafeEqual throws on length mismatch; compare to self to keep constant-ish work
     crypto.timingSafeEqual(a, a);
     return false;
   }
@@ -139,7 +138,6 @@ function startTypingKeepalive(updateId, chatId) {
     }
   };
 
-  // immediate typing
   tick();
   const interval = setInterval(tick, TYPING_INTERVAL_MS);
   typingTimers.set(key, { interval, chatId });
@@ -197,14 +195,41 @@ async function handleTelegramWebhook(req, res, secret) {
   }
 
   const updateId = String(update.update_id);
-  const dest = path.join(SPOOL_DIR, `${updateId}.json`);
   const chatId = extractChatId(update);
   const texty = hasText(update);
 
-  // Idempotent: if already present, still 200
+  // Whitelist (with optional bootstrap on empty + private /start)
+  let wl = loadWhitelist();
+  if (isWhitelistEmpty(wl)) {
+    const bootId = bootstrapChatIdIfStart(update);
+    if (bootId != null) {
+      const result = addChatId(bootId);
+      wl = { chat_ids: result.chat_ids, usernames: result.usernames };
+      console.error(
+        '[webhook] bootstrap: empty whitelist + private /start → added chat_id'
+      );
+    }
+  }
+
+  if (!isAllowed(update, wl)) {
+    console.error(
+      '[webhook] rejected (not whitelisted) update_id=%s chat_id=%s has_text=%s',
+      updateId,
+      chatId ?? 'none',
+      texty
+    );
+    // Still 200 so Telegram does not retry; do not spool or wake
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+    return;
+  }
+
+  const dest = path.join(SPOOL_DIR, `${updateId}.json`);
+  let wrote = false;
   if (!fs.existsSync(dest)) {
     try {
       atomicWriteJson(dest, update);
+      wrote = true;
     } catch (err) {
       console.error('[webhook] spool write failed update_id=%s', updateId);
       res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -214,27 +239,32 @@ async function handleTelegramWebhook(req, res, secret) {
   }
 
   console.error(
-    '[webhook] update_id=%s chat_id=%s has_text=%s',
+    '[webhook] update_id=%s chat_id=%s has_text=%s spooled=%s',
     updateId,
     chatId ?? 'none',
-    texty
+    texty,
+    wrote || 'idempotent'
   );
 
+  // Durable spool first → 200 to Telegram (wake failure must not block this)
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('ok');
 
-  // typing keepalive for allowed chat
-  const allowed = readAllowedChatId();
-  if (allowed && chatId && chatId === String(allowed).trim()) {
+  if (chatId) {
     startTypingKeepalive(updateId, chatId);
   }
+
+  // Instant wake (fire-and-forget; errors logged without secrets)
+  wakeAgent(update).catch(() => {
+    /* already logged inside wakeAgent */
+  });
 }
 
 function main() {
   ensureDirs();
+  ensureWhitelistFile();
   const secret = loadOrMintSecret();
 
-  // Verify token readable without logging it
   try {
     readToken();
   } catch (err) {
@@ -242,7 +272,6 @@ function main() {
     process.exit(1);
   }
 
-  // Touch TOKEN_PATH existence only (no content log)
   if (!fs.existsSync(TOKEN_PATH)) {
     console.error('[webhook] token file missing');
     process.exit(1);

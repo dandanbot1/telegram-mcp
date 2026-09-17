@@ -113,18 +113,33 @@ start_cloudflared() {
 }
 
 start_smee() {
+  # Reuse existing smee public-url when present so Telegram setWebhook stays stable.
+  # Only mint a new smee.io channel when none is saved yet (or force_new=1).
+  local force_new="${1:-0}"
   kill_pidfile "$TUNNEL_PID_FILE" "tunnel"
-  log "creating smee.io channel"
-  local channel
-  channel="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://smee.io/new)"
-  if [[ -z "$channel" || "$channel" == "https://smee.io/new" ]]; then
-    log "failed to create smee channel"
-    return 1
+  local channel=""
+  if [[ "$force_new" != "1" && -s "$PUBLIC_URL_FILE" ]]; then
+    channel="$(tr -d ' \n' < "$PUBLIC_URL_FILE" || true)"
+    if [[ "$channel" == https://smee.io/* && "$channel" != "https://smee.io/new" ]]; then
+      log "reusing existing smee channel (contents not printed)"
+    else
+      channel=""
+    fi
   fi
-  printf '%s\n' "$channel" > "$PUBLIC_URL_FILE"
-  chmod 600 "$PUBLIC_URL_FILE"
+  if [[ -z "$channel" ]]; then
+    log "creating smee.io channel"
+    channel="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://smee.io/new)"
+    if [[ -z "$channel" || "$channel" == "https://smee.io/new" ]]; then
+      log "failed to create smee channel"
+      return 1
+    fi
+    printf '%s\n' "$channel" > "$PUBLIC_URL_FILE"
+    chmod 600 "$PUBLIC_URL_FILE"
+    log "smee channel saved (contents not printed); starting smee-forward wrapper"
+  else
+    log "starting smee-forward wrapper for saved channel"
+  fi
   unset channel
-  log "smee channel saved (contents not printed); starting smee-forward wrapper"
   local tlog="$LOG_DIR/tunnel.log"
   : > "$tlog"
   # Wrapper reads URL from public-url file — keeps channel out of process argv / ps
@@ -158,6 +173,13 @@ run_set_webhook() {
 }
 
 ensure_tunnel_and_webhook() {
+  # If we already have a smee public-url, reuse it (avoid rotating the Telegram webhook target).
+  if [[ -s "$PUBLIC_URL_FILE" ]] && grep -q 'smee\.io/' "$PUBLIC_URL_FILE" 2>/dev/null; then
+    log "existing smee public-url present; restarting forwarder + setWebhook"
+    start_smee 0 || return 1
+    run_set_webhook || return 1
+    return 0
+  fi
   # Prefer cloudflared; if setWebhook fails with resolve-host (exit 2) or cloudflared missing, use smee
   local mode="cloudflared"
   if start_cloudflared; then

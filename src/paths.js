@@ -9,8 +9,16 @@ export const DATA_DIR =
 export const TOKEN_PATH = path.join(DATA_DIR, 'token');
 export const WEBHOOK_SECRET_PATH = path.join(DATA_DIR, 'webhook-secret');
 export const PUBLIC_URL_PATH = path.join(DATA_DIR, 'public-url');
+/** @deprecated Prefer WHITELIST_PATH; kept for migration. */
 export const ALLOWED_CHAT_ID_PATH = path.join(DATA_DIR, 'allowed-chat-id');
+export const WHITELIST_PATH = path.join(DATA_DIR, 'whitelist.json');
 export const BOT_USERNAME_PATH = path.join(DATA_DIR, 'bot-username');
+
+/** Instant wake: Grok Bot webhook routine URL + sender key (0600, not in git). */
+export const AGENT_WAKE_URL_PATH = path.join(DATA_DIR, 'agent-wake-url');
+export const AGENT_WAKE_KEY_PATH = path.join(DATA_DIR, 'agent-wake-key');
+/** Optional: header name or "both". Default dual-header when missing. */
+export const AGENT_WAKE_HEADER_PATH = path.join(DATA_DIR, 'agent-wake-header');
 
 export const SPOOL_DIR = path.join(DATA_DIR, 'spool');
 export const SPOOL_DONE_DIR = path.join(SPOOL_DIR, 'done');

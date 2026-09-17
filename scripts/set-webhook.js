@@ -52,9 +52,19 @@ async function main() {
   const publicUrl = readRequired(PUBLIC_URL_PATH, 'public-url');
   const secret = readRequired(WEBHOOK_SECRET_PATH, 'webhook-secret');
 
-  // Ensure URL ends with webhook path
+  // Local listener path is /telegram-webhook. For tunnels that terminate at the
+  // host root and forward to that path (smee.io), do NOT append the path —
+  // Telegram POSTing to https://smee.io/<id>/telegram-webhook returns 404.
+  // For cloudflared/other direct tunnels, append WEBHOOK_PATH.
   let url = publicUrl.replace(/\/$/, '');
-  if (!url.endsWith(WEBHOOK_PATH)) {
+  let host = '';
+  try {
+    host = new URL(url).host;
+  } catch {
+    /* ignore */
+  }
+  const isSmee = host === 'smee.io' || host.endsWith('.smee.io');
+  if (!isSmee && !url.endsWith(WEBHOOK_PATH)) {
     url = url + WEBHOOK_PATH;
   }
 
