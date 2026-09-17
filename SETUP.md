@@ -26,6 +26,8 @@ Flow: Telegram → public relay (cloudflared / smee) → `127.0.0.1:8787` listen
 
 ### Prerequisites
 
+**One BotFather bot per Grok Bot.** Never reuse another agent’s Telegram bot `@username`, BotFather token, wake URL/key, `public-url`, or whitelist. Create a **new** bot with BotFather for this agent. If you see some other agent’s Telegram `@username` in chat history, memory, or an example, that is **not** yours — ignore it and use only the `@username` returned by `npm run smoke` for **this** token.
+
 - **Node 18+** on the box.
 - User’s **own** BotFather bot token (their bot; not a shared token).
 - Grok Bot can **AddMcpServer** (stdio) and **create a webhook routine**.
@@ -62,6 +64,7 @@ Do **not** invent a role title or alternate persona name. Use **New Grok Bot** o
 - Point Telegram `setWebhook` at the Grok Bot webhook URL.
 - Create a cron “spool drain” (use webhook wake + debounce).
 - Call `getUpdates` while a webhook is set.
+- Reuse another Grok Bot’s BotFather bot, token, `@username`, wake credentials, or whitelist (each agent gets its own).
 - Create a **new** smee channel on every supervisor restart (reuse saved `public-url`).
 - Append `/telegram-webhook` onto smee.io channel URLs (Telegram gets 404). Correct: **smee channel root** → `smee-forward` → `http://127.0.0.1:8787/telegram-webhook`.
 - Wake once per message in a burst (debounce ~2s per chat; one agent run drains the whole spool; **at most one reply per batch**).
