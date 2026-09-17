@@ -26,7 +26,7 @@ Flow: Telegram → public relay (cloudflared / smee) → `127.0.0.1:8787` listen
 
 ### Prerequisites
 
-**One BotFather bot per Grok Bot.** Never reuse another agent’s Telegram bot `@username`, BotFather token, wake URL/key, `public-url`, or whitelist. Create a **new** bot with BotFather for this agent. If you see some other agent’s Telegram `@username` in chat history, memory, or an example, that is **not** yours — ignore it and use only the `@username` returned by `npm run smoke` for **this** token.
+**One BotFather bot per Grok Bot.** Never reuse another agent’s Telegram bot `@username`, BotFather token, wake URL/key, `public-url`, or whitelist. Create a **new** bot with BotFather for this agent. If you see another agent’s username in chat history, memory, or an example, that is **not** yours — ignore it and use only the `@username` returned by `npm run smoke` for **this** token.
 
 - **Node 18+** on the box.
 - User’s **own** BotFather bot token (their bot; not a shared token).
