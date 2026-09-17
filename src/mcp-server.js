@@ -12,6 +12,8 @@ import path from 'node:path';
 import {
   getMe,
   sendMessage,
+  sendPhoto,
+  sendMediaGroup,
   sendChatAction,
   getWebhookInfo,
   getUpdates,
@@ -184,6 +186,82 @@ server.registerTool(
         message_id: result.message_id,
         chat_id: result.chat?.id,
         date: result.date,
+      });
+    } catch (err) {
+      return errorResult(err);
+    }
+  }
+);
+
+server.registerTool(
+  'tg_send_photo',
+  {
+    description:
+      'Telegram interface for Grok Bot: send a photo to a chat via Bot API (HTTPS URL or local file path).',
+    inputSchema: {
+      chat_id: z.union([z.string(), z.number()]).describe('Telegram chat id'),
+      photo: z
+        .string()
+        .describe('HTTPS URL or absolute local file path'),
+      caption: z.string().optional().describe('Optional photo caption'),
+      parse_mode: z
+        .enum(['HTML', 'Markdown', 'MarkdownV2'])
+        .optional()
+        .describe('Optional parse_mode'),
+    },
+  },
+  async ({ chat_id, photo, caption, parse_mode }) => {
+    try {
+      const result = await sendPhoto(chat_id, {
+        photo,
+        caption,
+        parseMode: parse_mode,
+      });
+      return textResult({
+        message_id: result.message_id,
+        chat_id: result.chat?.id,
+        date: result.date,
+      });
+    } catch (err) {
+      return errorResult(err);
+    }
+  }
+);
+
+server.registerTool(
+  'tg_send_media_group',
+  {
+    description:
+      'Telegram interface for Grok Bot: send 2–10 photos as an album via Bot API sendMediaGroup (HTTPS URL or absolute local file path). Caption applies to the first photo only.',
+    inputSchema: {
+      chat_id: z.union([z.string(), z.number()]).describe('Telegram chat id'),
+      photos: z
+        .array(z.string())
+        .min(2)
+        .max(10)
+        .describe('2–10 photos: HTTPS URL or absolute local file path'),
+      caption: z
+        .string()
+        .optional()
+        .describe('Optional album caption (first photo only)'),
+      parse_mode: z
+        .enum(['HTML', 'Markdown', 'MarkdownV2'])
+        .optional()
+        .describe('Optional parse_mode'),
+    },
+  },
+  async ({ chat_id, photos, caption, parse_mode }) => {
+    try {
+      const result = await sendMediaGroup(chat_id, {
+        media: photos,
+        caption,
+        parseMode: parse_mode,
+      });
+      const messages = Array.isArray(result) ? result : [];
+      return textResult({
+        count: messages.length,
+        message_ids: messages.map((m) => m.message_id),
+        chat_id: messages[0]?.chat?.id ?? chat_id,
       });
     } catch (err) {
       return errorResult(err);

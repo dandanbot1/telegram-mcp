@@ -237,6 +237,8 @@ Shared `~/.local/telegram-mcp/token` is **not** the live store. All secrets mode
 |------|------|
 | `tg_get_me` | Bot identity |
 | `tg_send_message` | Send text to a chat |
+| `tg_send_photo` | Send a photo (`photo` is an HTTPS URL or absolute local path) |
+| `tg_send_media_group` | Send 2–10 photos as an album (`photos` are HTTPS URLs or absolute paths; caption on first) |
 | `tg_send_chat_action` | Typing / other actions (default `typing`) |
 | `tg_list_spool` | Pending spool summaries |
 | `tg_ack_spool` | Move spool item → `spool/done/` |

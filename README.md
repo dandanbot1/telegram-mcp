@@ -199,6 +199,8 @@ Paste connector instructions from [SETUP.md](./SETUP.md#mcp-instructions-paste).
 |------|------|
 | `tg_get_me` | Bot identity |
 | `tg_send_message` | Send text |
+| `tg_send_photo` | Send a photo (HTTPS URL or local file path) |
+| `tg_send_media_group` | Send 2–10 photos as an album (HTTPS URL or abs path; caption on first) |
 | `tg_send_chat_action` | Default `typing` |
 | `tg_list_spool` | Pending spool summaries |
 | `tg_ack_spool` | Move spool → `spool/done/` |
