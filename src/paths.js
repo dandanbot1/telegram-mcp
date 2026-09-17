@@ -36,7 +36,7 @@ export const BOT_USERNAME_PATH = path.join(DATA_DIR, 'bot-username');
 /** Instant wake: Grok Bot webhook routine URL + sender key (0600, not in git). */
 export const AGENT_WAKE_URL_PATH = path.join(DATA_DIR, 'agent-wake-url');
 export const AGENT_WAKE_KEY_PATH = path.join(DATA_DIR, 'agent-wake-key');
-/** Optional header name or "both". Default dual-header when missing. */
+/** Optional: header name or "both". Default dual-header when missing. */
 export const AGENT_WAKE_HEADER_PATH = path.join(DATA_DIR, 'agent-wake-header');
 
 export const SPOOL_DIR = path.join(DATA_DIR, 'spool');
