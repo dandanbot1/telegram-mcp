@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
 # Keep webhook listener + public tunnel + setWebhook healthy.
 # Never prints token, webhook secret, or public URL contents.
+# Multi-tenant: honor TELEGRAM_MCP_DATA_DIR; only touch this agent's dir/port.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="${TELEGRAM_MCP_DATA_DIR:-$HOME/.local/telegram-mcp}"
+export TELEGRAM_MCP_DATA_DIR="$DATA_DIR"
+
 mkdir -p "$DATA_DIR/spool/done"
 chmod 700 "$DATA_DIR" "$DATA_DIR/spool" "$DATA_DIR/spool/done" 2>/dev/null || true
+
+# Port: env > DATA_DIR/port > 8787
+if [[ -z "${TELEGRAM_WEBHOOK_PORT:-}" && -s "$DATA_DIR/port" ]]; then
+  TELEGRAM_WEBHOOK_PORT="$(tr -d ' \n' < "$DATA_DIR/port" || true)"
+fi
+TELEGRAM_WEBHOOK_PORT="${TELEGRAM_WEBHOOK_PORT:-8787}"
+export TELEGRAM_WEBHOOK_PORT
+PORT="$TELEGRAM_WEBHOOK_PORT"
 
 LISTENER_PID_FILE="$DATA_DIR/listener.pid"
 TUNNEL_PID_FILE="$DATA_DIR/tunnel.pid"
 SUPERVISOR_PID_FILE="$DATA_DIR/supervisor.pid"
 PUBLIC_URL_FILE="$DATA_DIR/public-url"
 SECRET_FILE="$DATA_DIR/webhook-secret"
-HEALTHZ="http://127.0.0.1:8787/healthz"
+HEALTHZ="http://127.0.0.1:${PORT}/healthz"
 LOG_DIR="$DATA_DIR/logs"
 mkdir -p "$LOG_DIR"
 
@@ -41,12 +52,12 @@ kill_pidfile() {
     fi
     rm -f "$file"
   fi
-  # Also clear stray listeners on 8787 owned by us
+  # Clear stray listeners on THIS tenant's port only (never other agents' ports)
   if [[ "$name" == "listener" ]]; then
     local p
-    p="$(ss -ltnp 2>/dev/null | awk '/:8787/ {print}' | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1 || true)"
+    p="$(ss -ltnp 2>/dev/null | awk -v PORT="$PORT" 'BEGIN{pat=":" PORT "([^0-9]|$)"} $0 ~ pat {print}' | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1 || true)"
     if [[ -n "${p:-}" ]]; then
-      log "killing stray listener on :8787 pid=$p"
+      log "killing stray listener on :$PORT pid=$p"
       kill "$p" 2>/dev/null || true
       sleep 0.3
       kill -9 "$p" 2>/dev/null || true
@@ -66,8 +77,9 @@ ensure_secret() {
 
 start_listener() {
   kill_pidfile "$LISTENER_PID_FILE" "listener"
-  log "starting webhook listener"
-  nohup node "$ROOT/src/webhook-listener.js" >>"$LOG_DIR/listener.log" 2>&1 &
+  log "starting webhook listener on :$PORT (DATA_DIR set, not printed)"
+  nohup env TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
+    node "$ROOT/src/webhook-listener.js" >>"$LOG_DIR/listener.log" 2>&1 &
   echo $! > "$LISTENER_PID_FILE"
   chmod 600 "$LISTENER_PID_FILE" 2>/dev/null || true
   for _ in $(seq 1 20); do
@@ -91,7 +103,7 @@ start_cloudflared() {
   local tlog="$LOG_DIR/tunnel.log"
   : > "$tlog"
   log "starting cloudflared quick tunnel"
-  nohup cloudflared tunnel --url "http://127.0.0.1:8787" --no-autoupdate \
+  nohup cloudflared tunnel --url "http://127.0.0.1:${PORT}" --no-autoupdate \
     >>"$tlog" 2>&1 &
   echo $! > "$TUNNEL_PID_FILE"
   chmod 600 "$TUNNEL_PID_FILE" 2>/dev/null || true
@@ -143,7 +155,8 @@ start_smee() {
   local tlog="$LOG_DIR/tunnel.log"
   : > "$tlog"
   # Wrapper reads URL from public-url file — keeps channel out of process argv / ps
-  nohup node "$ROOT/scripts/smee-forward.js" >>"$tlog" 2>&1 &
+  nohup env TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
+    node "$ROOT/scripts/smee-forward.js" >>"$tlog" 2>&1 &
   echo $! > "$TUNNEL_PID_FILE"
   chmod 600 "$TUNNEL_PID_FILE" 2>/dev/null || true
   sleep 2
@@ -161,7 +174,8 @@ run_set_webhook() {
     return 1
   fi
   set +e
-  node "$ROOT/scripts/set-webhook.js"
+  env TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
+    node "$ROOT/scripts/set-webhook.js"
   local rc=$?
   set -e
   if [[ $rc -eq 0 ]]; then
@@ -241,6 +255,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # --- main ---
+log "DATA_DIR configured; PORT=$PORT (secrets not printed)"
 ensure_secret
 start_listener
 ensure_tunnel_and_webhook || log "initial tunnel/webhook setup incomplete (will retry in health loop)"
