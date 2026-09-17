@@ -28,6 +28,8 @@ On a shared Grok Bot box, **each agent is a separate tenant**:
 | Shared root | `~/.local/telegram-mcp/` may hold only a README warning — **not** live token/whitelist/wake/public-url/webhook-secret for any agent |
 | Isolation | Sibling agents must **not** read or write another agent’s dir |
 | BotFather | **One BotFather bot per Grok Bot** — never reuse another agent’s bot |
+| MCP connector name | **Unique** display name per agent (never reuse another bot’s connector name) |
+| `config.json` | Per-tenant; default `group_require_mention: true` |
 
 Helpers:
 
@@ -52,6 +54,7 @@ public HTTPS relay (cloudflared / smee.io)
    │
    ├─ secret-token check
    ├─ whitelist check  (non-whitelist → 200, no spool, no wake)
+   ├─ group mention gate (default on: groups need @bot / reply / /cmd@bot)
    ├─ atomic spool write  $TELEGRAM_MCP_DATA_DIR/spool/<update_id>.json
    ├─ typing keepalive
    └─ POST agent wake (debounced ~2s/chat)  →  Grok Bot webhook routine
@@ -82,6 +85,28 @@ File: `$TELEGRAM_MCP_DATA_DIR/whitelist.json` (mode `0600`):
 - Legacy `allowed-chat-id` migrates into `chat_ids` on listener start when whitelist is missing/empty
 
 MCP: `tg_whitelist_list` / `tg_whitelist_add` / `tg_whitelist_remove`
+
+## Config (`config.json`)
+
+File: `$TELEGRAM_MCP_DATA_DIR/config.json` (mode `0600`):
+
+```json
+{
+  "group_require_mention": true
+}
+```
+
+- **Default when missing:** `group_require_mention: true` (minted on listener start).
+- When `true`, in **group** / **supergroup** chats the listener accepts only **direct pings**:
+  1. `mention` / `text_mention` of this bot, or
+  2. plain text/caption containing `@botUsername` (case-insensitive), or
+  3. reply to a message from this bot, or
+  4. `/cmd@botUsername` (`bot_command` addressed to this bot)
+- Non-pings: **200**, log `rejected (not mentioned)`, **no spool**, **no wake**.
+- **Private chats:** unchanged (whitelist only).
+- Helper: `isDirectGroupPing(update, botUsername, botId)` in `src/group-gate.js`.
+
+MCP: `tg_config_get` / `tg_config_set` (or edit the file). Listener re-reads config per update.
 
 ## Instant wake (Grok Bot)
 
@@ -116,6 +141,7 @@ Port resolution for the listener: `TELEGRAM_WEBHOOK_PORT` env → `$DATA_DIR/por
 | `webhook-secret` | Telegram secret token (0600; minted if missing). |
 | `public-url` | Public HTTPS base for `setWebhook` (0600). |
 | `whitelist.json` | Allowed chat ids / usernames (0600). |
+| `config.json` | Tenant flags e.g. `group_require_mention` (0600; default true). |
 | `allowed-chat-id` | Legacy single id; migrated into whitelist. |
 | `agent-wake-url` | Grok Bot webhook routine URL (0600). |
 | `agent-wake-key` | Wake sender key / secret (0600). |
@@ -181,6 +207,8 @@ Paste connector instructions from [SETUP.md](./SETUP.md#mcp-instructions-paste).
 | `tg_whitelist_list` | List whitelist (no secrets) |
 | `tg_whitelist_add` | `{ chat_id?, username? }` |
 | `tg_whitelist_remove` | `{ chat_id?, username? }` |
+| `tg_config_get` | Read `config.json` (`group_require_mention`) |
+| `tg_config_set` | `{ group_require_mention: boolean }` |
 
 ## Listener details
 
@@ -189,7 +217,8 @@ Paste connector instructions from [SETUP.md](./SETUP.md#mcp-instructions-paste).
 - `POST /telegram-webhook`; 401 if secret wrong
 - Body limit ~1MB; atomic spool; idempotent
 - Non-whitelist: 200, **no spool**, **no wake**
-- Whitelist: spool → typing every **4s** (max **2 min**) → **debounced** agent wake
+- Group non-mention (when `group_require_mention`): 200, **no spool**, **no wake**
+- Whitelist (+ direct ping in groups): spool → typing every **4s** (max **2 min**) → **debounced** agent wake
 
 ## Caveats
 

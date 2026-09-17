@@ -28,6 +28,11 @@ import {
   removeFromWhitelist,
   ensureWhitelistFile,
 } from './whitelist.js';
+import {
+  ensureConfigFile,
+  loadConfig,
+  saveConfig,
+} from './config.js';
 import { getWakeConfig } from './agent-wake.js';
 
 function textResult(obj) {
@@ -398,6 +403,54 @@ server.registerTool(
         chat_ids: result.chat_ids,
         usernames: result.usernames,
         removed: result.removed,
+      });
+    } catch (err) {
+      return errorResult(err);
+    }
+  }
+);
+
+
+server.registerTool(
+  'tg_config_get',
+  {
+    description:
+      'Telegram interface for Grok Bot: read tenant config.json (no secrets). Returns group_require_mention (default true: groups only accept direct @mentions / replies / @commands).',
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      ensureConfigFile();
+      const cfg = loadConfig();
+      return textResult({
+        group_require_mention: cfg.group_require_mention,
+      });
+    } catch (err) {
+      return errorResult(err);
+    }
+  }
+);
+
+server.registerTool(
+  'tg_config_set',
+  {
+    description:
+      'Telegram interface for Grok Bot: update tenant config.json. Set group_require_mention true/false (when true, group/supergroup messages must @mention or reply to the bot). Takes effect on next inbound update (no restart).',
+    inputSchema: {
+      group_require_mention: z
+        .boolean()
+        .describe(
+          'If true, only direct pings in groups/supergroups are accepted'
+        ),
+    },
+  },
+  async ({ group_require_mention }) => {
+    try {
+      ensureConfigFile();
+      const cfg = saveConfig({ group_require_mention });
+      return textResult({
+        group_require_mention: cfg.group_require_mention,
+        updated: true,
       });
     } catch (err) {
       return errorResult(err);

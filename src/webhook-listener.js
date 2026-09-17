@@ -3,8 +3,8 @@
  * Local Telegram webhook listener — generic front for a Grok Bot agent.
  * Binds 127.0.0.1:8787 only. Never logs token, webhook secret, or wake URL/key.
  *
- * Flow: validate secret → whitelist → spool → typing keepalive → agent wake.
- * Non-whitelisted updates: 200 to Telegram, do NOT spool, do NOT wake.
+ * Flow: validate secret → whitelist → group mention gate → spool → typing → wake.
+ * Non-whitelisted / non-mentioned (groups): 200 to Telegram, do NOT spool, do NOT wake.
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -19,8 +19,9 @@ import {
   LISTENER_PORT,
   WEBHOOK_PATH,
   TOKEN_PATH,
+  BOT_USERNAME_PATH,
 } from './paths.js';
-import { readToken, sendChatAction } from './telegram-api.js';
+import { readToken, sendChatAction, getMe } from './telegram-api.js';
 import {
   ensureWhitelistFile,
   isAllowed,
@@ -29,7 +30,13 @@ import {
   addChatId,
   loadWhitelist,
 } from './whitelist.js';
+import { ensureConfigFile, loadConfig } from './config.js';
+import { isDirectGroupPing } from './group-gate.js';
 import { wakeAgent } from './agent-wake.js';
+
+/** Cached bot identity for group mention gate (filled at startup). */
+let cachedBotUsername = '';
+let cachedBotId = null;
 
 const BODY_LIMIT = 1024 * 1024; // ~1MB
 const TYPING_INTERVAL_MS = 4000;
@@ -152,6 +159,57 @@ function extractChatId(update) {
   return null;
 }
 
+function extractChatType(update) {
+  const msg = update.message || update.edited_message || update.channel_post;
+  if (msg?.chat?.type) return msg.chat.type;
+  if (update.callback_query?.message?.chat?.type) {
+    return update.callback_query.message.chat.type;
+  }
+  return null;
+}
+
+/**
+ * Load bot username from bot-username file or getMe; cache username + id.
+ * Strips leading @. Never logs token.
+ */
+async function resolveBotIdentity() {
+  let fromFile = '';
+  try {
+    fromFile = fs.readFileSync(BOT_USERNAME_PATH, 'utf8').trim().replace(/^@/, '');
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      console.error('[webhook] bot-username read error (non-fatal)');
+    }
+  }
+
+  try {
+    const me = await getMe();
+    cachedBotId = me?.id != null ? Number(me.id) : null;
+    const fromApi = typeof me?.username === 'string' ? me.username.replace(/^@/, '') : '';
+    cachedBotUsername = fromApi || fromFile || '';
+    if (cachedBotUsername) {
+      try {
+        fs.writeFileSync(BOT_USERNAME_PATH, `@${cachedBotUsername}\n`, { mode: 0o600 });
+        fs.chmodSync(BOT_USERNAME_PATH, 0o600);
+      } catch {
+        /* ignore cache write failures */
+      }
+    }
+    console.error(
+      '[webhook] bot identity cached username=%s id=%s',
+      cachedBotUsername ? `@${cachedBotUsername}` : '(none)',
+      cachedBotId != null ? String(cachedBotId) : '(none)'
+    );
+  } catch (err) {
+    cachedBotUsername = fromFile || '';
+    cachedBotId = null;
+    console.error(
+      '[webhook] getMe failed at startup; using file username=%s (text_mention/reply-id checks limited)',
+      cachedBotUsername ? `@${cachedBotUsername}` : '(none)'
+    );
+  }
+}
+
 function hasText(update) {
   const msg = update.message || update.edited_message || update.channel_post;
   return Boolean(msg?.text || msg?.caption);
@@ -224,6 +282,27 @@ async function handleTelegramWebhook(req, res, secret) {
     return;
   }
 
+  // Group mention gate (default on): only direct pings in groups/supergroups
+  const chatType = extractChatType(update);
+  const cfg = loadConfig();
+  if (
+    (chatType === 'group' || chatType === 'supergroup') &&
+    cfg.group_require_mention
+  ) {
+    if (!isDirectGroupPing(update, cachedBotUsername, cachedBotId)) {
+      console.error(
+        '[webhook] rejected (not mentioned) update_id=%s chat_id=%s chat_type=%s has_text=%s',
+        updateId,
+        chatId ?? 'none',
+        chatType,
+        texty
+      );
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('ok');
+      return;
+    }
+  }
+
   const dest = path.join(SPOOL_DIR, `${updateId}.json`);
   let wrote = false;
   if (!fs.existsSync(dest)) {
@@ -260,9 +339,10 @@ async function handleTelegramWebhook(req, res, secret) {
   });
 }
 
-function main() {
+async function main() {
   ensureDirs();
   ensureWhitelistFile();
+  ensureConfigFile();
   const secret = loadOrMintSecret();
 
   try {
@@ -276,6 +356,8 @@ function main() {
     console.error('[webhook] token file missing');
     process.exit(1);
   }
+
+  await resolveBotIdentity();
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://${LISTENER_HOST}:${LISTENER_PORT}`);
@@ -321,4 +403,7 @@ function main() {
   process.on('SIGTERM', shutdown);
 }
 
-main();
+main().catch((err) => {
+  console.error('[webhook] startup failed:', err instanceof Error ? err.message : String(err));
+  process.exit(1);
+});
