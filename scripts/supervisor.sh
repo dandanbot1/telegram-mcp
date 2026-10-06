@@ -252,7 +252,10 @@ cleanup() {
   kill_pidfile "$TUNNEL_PID_FILE" "tunnel"
   rm -f "$SUPERVISOR_PID_FILE"
 }
-trap cleanup EXIT INT TERM
+# Run cleanup on exit; INT/TERM must actually exit (a bare trap would run
+# cleanup and then keep looping, respawning listener + tunnel).
+trap cleanup EXIT
+trap 'exit 143' INT TERM
 
 # --- main ---
 log "DATA_DIR configured; PORT=$PORT (secrets not printed)"
