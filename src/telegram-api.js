@@ -1,30 +1,55 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { TOKEN_PATH, TELEGRAM_API_BASE } from './paths.js';
+import { TELEGRAM_API_BASE } from './paths.js';
 
 /**
- * Read bot token from env or file. Never log the token.
+ * Read bot token from per-tenant token file or explicit opt-in env var. Never log the token.
  * @returns {string}
  */
 export function readToken() {
-  const fromEnv = process.env.TELEGRAM_BOT_TOKEN;
-  if (fromEnv && fromEnv.trim()) {
-    return fromEnv.trim();
-  }
-  try {
-    const raw = fs.readFileSync(TOKEN_PATH, 'utf8').trim();
-    if (!raw) {
-      throw new Error(`Token file is empty: ${TOKEN_PATH}`);
+  const envVarName = process.env.TELEGRAM_BOT_TOKEN_ENV?.trim();
+  if (envVarName) {
+    if (envVarName === 'TELEGRAM_BOT_TOKEN') {
+      throw new Error(
+        'TELEGRAM_BOT_TOKEN_ENV cannot be set to TELEGRAM_BOT_TOKEN (shared global is disallowed)'
+      );
     }
-    return raw;
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(envVarName)) {
+      throw new Error(
+        `Invalid TELEGRAM_BOT_TOKEN_ENV variable name: "${envVarName}"`
+      );
+    }
+    const val = process.env[envVarName];
+    if (!val || !val.trim()) {
+      throw new Error(
+        `Environment variable ${envVarName} (named by TELEGRAM_BOT_TOKEN_ENV) is unset or empty`
+      );
+    }
+    return val.trim();
+  }
+
+  const dataDir = process.env.TELEGRAM_MCP_DATA_DIR;
+  if (!dataDir || !dataDir.trim()) {
+    throw new Error(
+      'TELEGRAM_MCP_DATA_DIR is not set; refusing to use shared root / global token'
+    );
+  }
+
+  const tokenPath = path.join(dataDir.trim(), 'token');
+  let raw;
+  try {
+    raw = fs.readFileSync(tokenPath, 'utf8');
   } catch (err) {
     if (err && err.code === 'ENOENT') {
-      throw new Error(
-        `No TELEGRAM_BOT_TOKEN and missing token file at ${TOKEN_PATH}`
-      );
+      throw new Error(`Token file missing at ${tokenPath}`);
     }
     throw err;
   }
+  const token = raw.trim();
+  if (!token) {
+    throw new Error(`Token file is empty: ${tokenPath}`);
+  }
+  return token;
 }
 
 /**

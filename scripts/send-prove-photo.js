@@ -7,10 +7,11 @@
  */
 import fs from 'node:fs';
 import { sendPhoto } from '../src/telegram-api.js';
-import { ALLOWED_CHAT_ID_PATH } from '../src/paths.js';
+import { ALLOWED_CHAT_ID_PATH, requireTenantDataDir } from '../src/paths.js';
 import { ensureWhitelistFile, loadWhitelist } from '../src/whitelist.js';
 
 async function main() {
+  requireTenantDataDir();
   const photo = (process.env.PHOTO || '').trim();
   if (!photo) {
     throw new Error('Set PHOTO to an HTTPS URL or absolute local file path');

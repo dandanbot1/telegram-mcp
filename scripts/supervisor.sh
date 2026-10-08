@@ -5,8 +5,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DATA_DIR="${TELEGRAM_MCP_DATA_DIR:-$HOME/.local/telegram-mcp}"
-export TELEGRAM_MCP_DATA_DIR="$DATA_DIR"
+if [[ -z "${TELEGRAM_MCP_DATA_DIR:-}" ]]; then
+  echo "TELEGRAM_MCP_DATA_DIR is not set; refusing to use shared root / global token" >&2
+  exit 2
+fi
+DATA_DIR="$TELEGRAM_MCP_DATA_DIR"
+export TELEGRAM_MCP_DATA_DIR
 
 mkdir -p "$DATA_DIR/spool/done"
 chmod 700 "$DATA_DIR" "$DATA_DIR/spool" "$DATA_DIR/spool/done" 2>/dev/null || true
@@ -78,7 +82,7 @@ ensure_secret() {
 start_listener() {
   kill_pidfile "$LISTENER_PID_FILE" "listener"
   log "starting webhook listener on :$PORT (DATA_DIR set, not printed)"
-  nohup env TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
+  nohup env -u TELEGRAM_BOT_TOKEN TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
     node "$ROOT/src/webhook-listener.js" >>"$LOG_DIR/listener.log" 2>&1 &
   echo $! > "$LISTENER_PID_FILE"
   chmod 600 "$LISTENER_PID_FILE" 2>/dev/null || true
@@ -155,7 +159,7 @@ start_smee() {
   local tlog="$LOG_DIR/tunnel.log"
   : > "$tlog"
   # Wrapper reads URL from public-url file — keeps channel out of process argv / ps
-  nohup env TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
+  nohup env -u TELEGRAM_BOT_TOKEN TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
     node "$ROOT/scripts/smee-forward.js" >>"$tlog" 2>&1 &
   echo $! > "$TUNNEL_PID_FILE"
   chmod 600 "$TUNNEL_PID_FILE" 2>/dev/null || true
@@ -174,7 +178,7 @@ run_set_webhook() {
     return 1
   fi
   set +e
-  env TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
+  env -u TELEGRAM_BOT_TOKEN TELEGRAM_MCP_DATA_DIR="$DATA_DIR" TELEGRAM_WEBHOOK_PORT="$PORT" \
     node "$ROOT/scripts/set-webhook.js"
   local rc=$?
   set -e

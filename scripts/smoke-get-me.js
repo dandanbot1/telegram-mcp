@@ -5,9 +5,10 @@
  */
 import fs from 'node:fs';
 import { getMe } from '../src/telegram-api.js';
-import { BOT_USERNAME_PATH, DATA_DIR } from '../src/paths.js';
+import { BOT_USERNAME_PATH, DATA_DIR, requireTenantDataDir } from '../src/paths.js';
 
 async function main() {
+  requireTenantDataDir();
   const me = await getMe();
   const username = me.username ? `@${me.username}` : '(no-username)';
   const id = me.id;

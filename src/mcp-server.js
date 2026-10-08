@@ -22,6 +22,7 @@ import {
   SPOOL_DIR,
   SPOOL_DONE_DIR,
   HEALTHZ_URL,
+  requireTenantDataDir,
 } from './paths.js';
 import {
   loadWhitelist,
@@ -537,6 +538,12 @@ server.registerTool(
 );
 
 async function main() {
+  try {
+    requireTenantDataDir();
+  } catch (err) {
+    console.error('MCP server startup failed:', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

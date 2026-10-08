@@ -7,8 +7,19 @@ import {
   AGENT_WAKE_URL_PATH,
   AGENT_WAKE_KEY_PATH,
   AGENT_WAKE_HEADER_PATH,
+  requireTenantDataDir,
 } from '../src/paths.js';
 import { resolveWakeHeaderMode } from '../src/agent-wake.js';
+
+try {
+  requireTenantDataDir();
+} catch (err) {
+  console.error(
+    'check-wake-config failed:',
+    err instanceof Error ? err.message : String(err)
+  );
+  process.exit(1);
+}
 
 function present(p) {
   try {

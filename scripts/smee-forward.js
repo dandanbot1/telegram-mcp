@@ -6,7 +6,17 @@
  */
 import fs from 'node:fs';
 import Client from 'smee-client';
-import { PUBLIC_URL_PATH, LOCAL_WEBHOOK_URL } from '../src/paths.js';
+import { PUBLIC_URL_PATH, LOCAL_WEBHOOK_URL, requireTenantDataDir } from '../src/paths.js';
+
+try {
+  requireTenantDataDir();
+} catch (err) {
+  console.error(
+    'smee-forward failed:',
+    err instanceof Error ? err.message : String(err)
+  );
+  process.exit(1);
+}
 
 function readSource() {
   const fromEnv = process.env.SMEE_SOURCE_URL?.trim();

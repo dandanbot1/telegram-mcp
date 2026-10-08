@@ -7,6 +7,25 @@ export const DATA_DIR =
   process.env.TELEGRAM_MCP_DATA_DIR ||
   path.join(os.homedir(), '.local', 'telegram-mcp');
 
+export const HAS_TENANT_DATA_DIR = Boolean(
+  process.env.TELEGRAM_MCP_DATA_DIR && process.env.TELEGRAM_MCP_DATA_DIR.trim()
+);
+
+export function hasTenantDataDir() {
+  return Boolean(
+    process.env.TELEGRAM_MCP_DATA_DIR && process.env.TELEGRAM_MCP_DATA_DIR.trim()
+  );
+}
+
+export function requireTenantDataDir() {
+  if (!process.env.TELEGRAM_MCP_DATA_DIR || !process.env.TELEGRAM_MCP_DATA_DIR.trim()) {
+    throw new Error(
+      'TELEGRAM_MCP_DATA_DIR is not set; refusing to use shared root / global token'
+    );
+  }
+  return DATA_DIR;
+}
+
 /**
  * Optional per-tenant port file under DATA_DIR.
  * Used only when TELEGRAM_WEBHOOK_PORT is unset.

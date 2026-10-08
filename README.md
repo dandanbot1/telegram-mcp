@@ -41,6 +41,14 @@ eval "$(bash scripts/agent-env.sh <agent-id>)"
 bash scripts/print-tenant.sh
 ```
 
+### Token isolation
+
+Bot token resolution is strictly isolated per tenant:
+- **Token resolution**: token resolves **ONLY** from `$TELEGRAM_MCP_DATA_DIR/token` (mode `0600`) or the explicit opt-in `TELEGRAM_BOT_TOKEN_ENV=<NAME>`.
+- **Bare global token ignored**: the bare `TELEGRAM_BOT_TOKEN` environment variable is ignored by design (box-wide secrets leak across tenants).
+- **Required DATA_DIR**: `TELEGRAM_MCP_DATA_DIR` is required for every entrypoint; entrypoints refuse to run against the shared root (`~/.local/telegram-mcp`).
+- **MCP connector env**: MCP connector env should set `TELEGRAM_MCP_DATA_DIR` and `TELEGRAM_WEBHOOK_PORT` only.
+
 ## Architecture
 
 ```
@@ -129,14 +137,14 @@ Write URL/key via secret-request into `$TELEGRAM_MCP_DATA_DIR/agent-wake-{url,ke
 
 ## Runtime files (not in git)
 
-**Required on a shared box:** set `TELEGRAM_MCP_DATA_DIR` to `~/.local/telegram-mcp/agents/<agent-id>`.  
-Do **not** use the shared `~/.local/telegram-mcp/token` as the live store.
+`TELEGRAM_MCP_DATA_DIR` is required for every entrypoint.  
+Do **not** use the shared `~/.local/telegram-mcp/token` as the live store (the shared root is refused by design).
 
 Port resolution for the listener: `TELEGRAM_WEBHOOK_PORT` env → `$DATA_DIR/port` file → fallback `8787`.
 
 | Path | Purpose |
 |------|---------|
-| `token` | Bot token (0600). Or `TELEGRAM_BOT_TOKEN`. |
+| `token` | Bot token (0600). Resolves ONLY from `$TELEGRAM_MCP_DATA_DIR/token` or explicit opt-in `TELEGRAM_BOT_TOKEN_ENV=<NAME>`. Bare `TELEGRAM_BOT_TOKEN` is ignored. |
 | `port` | Optional listener port for this tenant (plain integer). |
 | `webhook-secret` | Telegram secret token (0600; minted if missing). |
 | `public-url` | Public HTTPS base for `setWebhook` (0600). |
@@ -174,7 +182,7 @@ On start: kill old PIDs **for this DATA_DIR only**, ensure webhook-secret, resta
 
 ## MCP registration
 
-`AddMcpServer` **must** pass per-agent env (stdio connector):
+`AddMcpServer` **must** pass per-agent env (stdio connector). MCP connector env should set `TELEGRAM_MCP_DATA_DIR` and `TELEGRAM_WEBHOOK_PORT` only:
 
 ```json
 {

@@ -20,6 +20,7 @@ import {
   WEBHOOK_PATH,
   TOKEN_PATH,
   BOT_USERNAME_PATH,
+  requireTenantDataDir,
 } from './paths.js';
 import { readToken, sendChatAction, getMe } from './telegram-api.js';
 import {
@@ -340,6 +341,13 @@ async function handleTelegramWebhook(req, res, secret) {
 }
 
 async function main() {
+  try {
+    requireTenantDataDir();
+  } catch (err) {
+    console.error('[webhook]', err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
   ensureDirs();
   ensureWhitelistFile();
   ensureConfigFile();
@@ -352,7 +360,8 @@ async function main() {
     process.exit(1);
   }
 
-  if (!fs.existsSync(TOKEN_PATH)) {
+  const hasTokenEnv = Boolean(process.env.TELEGRAM_BOT_TOKEN_ENV?.trim());
+  if (!hasTokenEnv && !fs.existsSync(TOKEN_PATH)) {
     console.error('[webhook] token file missing');
     process.exit(1);
   }

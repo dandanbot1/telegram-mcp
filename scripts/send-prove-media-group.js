@@ -7,7 +7,7 @@
  */
 import fs from 'node:fs';
 import { sendMediaGroup } from '../src/telegram-api.js';
-import { ALLOWED_CHAT_ID_PATH } from '../src/paths.js';
+import { ALLOWED_CHAT_ID_PATH, requireTenantDataDir } from '../src/paths.js';
 import { ensureWhitelistFile, loadWhitelist } from '../src/whitelist.js';
 
 function collectPhotos() {
@@ -26,6 +26,7 @@ function collectPhotos() {
 }
 
 async function main() {
+  requireTenantDataDir();
   const photos = collectPhotos();
   if (photos.length < 2 || photos.length > 10) {
     throw new Error(

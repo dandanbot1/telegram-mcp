@@ -8,6 +8,7 @@ import {
   PUBLIC_URL_PATH,
   WEBHOOK_SECRET_PATH,
   WEBHOOK_PATH,
+  requireTenantDataDir,
 } from '../src/paths.js';
 import { setWebhook, getWebhookInfo } from '../src/telegram-api.js';
 
@@ -49,6 +50,7 @@ function redactInfo(info) {
 }
 
 async function main() {
+  requireTenantDataDir();
   const publicUrl = readRequired(PUBLIC_URL_PATH, 'public-url');
   const secret = readRequired(WEBHOOK_SECRET_PATH, 'webhook-secret');
 

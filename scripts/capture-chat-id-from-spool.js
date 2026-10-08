@@ -10,6 +10,7 @@ import {
   SPOOL_DONE_DIR,
   ALLOWED_CHAT_ID_PATH,
   DATA_DIR,
+  requireTenantDataDir,
 } from '../src/paths.js';
 import { addChatId, ensureWhitelistFile } from '../src/whitelist.js';
 
@@ -39,6 +40,7 @@ function extractPrivateChatId(update) {
 }
 
 function main() {
+  requireTenantDataDir();
   ensureWhitelistFile();
 
   const files = [
@@ -82,4 +84,12 @@ function main() {
   console.log(chatId);
 }
 
-main();
+try {
+  main();
+} catch (err) {
+  console.error(
+    'capture-chat-id-from-spool failed:',
+    err instanceof Error ? err.message : String(err)
+  );
+  process.exit(1);
+}

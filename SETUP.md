@@ -28,11 +28,11 @@ Flow: Telegram → public relay (cloudflared / smee) → `127.0.0.1:<port>` list
 
 **One BotFather bot per Grok Bot.** Never reuse another agent’s Telegram bot `@username`, BotFather token, wake URL/key, `public-url`, or whitelist. Create a **new** bot with BotFather for this agent. If you see some other agent’s Telegram `@username` in chat history, memory, or an example, that is **not** yours — ignore it and use only the `@username` returned by `npm run smoke` for **this** token.
 
-**Per-agent data dir (required on a shared box):**
+**Per-agent data dir (`TELEGRAM_MCP_DATA_DIR` is required for every entrypoint):**
 
-- Set `TELEGRAM_MCP_DATA_DIR` to `~/.local/telegram-mcp/agents/<this-agent-id>` for the supervisor, listener, smoke scripts, and MCP `env`.
+- Set `TELEGRAM_MCP_DATA_DIR` to `~/.local/telegram-mcp/agents/<this-agent-id>` for the supervisor, listener, smoke scripts, and MCP `env`. All entrypoints refuse to run against the shared root `~/.local/telegram-mcp`.
 - Assign a **unique** `TELEGRAM_WEBHOOK_PORT` (write it to `$TELEGRAM_MCP_DATA_DIR/port`). Do not share a port with another agent or with system tunnels.
-- The shared root `~/.local/telegram-mcp/` may hold only a README warning — **never** use `~/.local/telegram-mcp/token` as the live store (sibling agents can overwrite it). Scrub any leftover live `token` / `whitelist.json` / `webhook-secret` / `public-url` / `agent-wake-*` from the shared root into quarantine; live config belongs only under `agents/<id>/`.
+- The shared root `~/.local/telegram-mcp/` may hold only a README warning — **never** use `~/.local/telegram-mcp/token` as the live store (sibling agents can overwrite it, and entrypoints refuse it). Scrub any leftover live `token` / `whitelist.json` / `webhook-secret` / `public-url` / `agent-wake-*` from the shared root into quarantine; live config belongs only under `agents/<id>/`.
 - Sibling agents must **not** read or write another agent’s dir.
 
 Helpers:
@@ -137,7 +137,7 @@ Numbered. Copy-paste where safe. Never echo secret file contents.
    chmod 600 "$TELEGRAM_MCP_DATA_DIR/token"
    ```
 
-   Or set `TELEGRAM_BOT_TOKEN` in the environment for this session only.
+   The token resolves ONLY from `$TELEGRAM_MCP_DATA_DIR/token` (0600) or via the explicit opt-in `TELEGRAM_BOT_TOKEN_ENV=<NAME>`. The bare global `TELEGRAM_BOT_TOKEN` environment variable is ignored by design (box-wide secrets leak across tenants). `TELEGRAM_MCP_DATA_DIR` is required for every entrypoint.
 
 4. **Smoke the bot identity** (with DATA_DIR exported):
 
@@ -208,13 +208,13 @@ Numbered. Copy-paste where safe. Never echo secret file contents.
 
 ### Runtime files table
 
-**Required:** `TELEGRAM_MCP_DATA_DIR=~/.local/telegram-mcp/agents/<agent-id>`.  
+**Required:** `TELEGRAM_MCP_DATA_DIR=~/.local/telegram-mcp/agents/<agent-id>` (required for every entrypoint; entrypoints refuse the shared-root default `~/.local/telegram-mcp`).  
 Port: `TELEGRAM_WEBHOOK_PORT` or `$DATA_DIR/port` (fallback `8787`).  
 Shared `~/.local/telegram-mcp/token` is **not** the live store. All secrets mode `0600`. Never commit.
 
 | Path | Purpose |
 |------|---------|
-| `token` | BotFather bot token (or use `TELEGRAM_BOT_TOKEN`) |
+| `token` | BotFather bot token (0600). Resolves ONLY from `$TELEGRAM_MCP_DATA_DIR/token` or explicit opt-in `TELEGRAM_BOT_TOKEN_ENV=<NAME>`. Bare `TELEGRAM_BOT_TOKEN` is ignored by design. |
 | `port` | Listener port for this tenant |
 | `webhook-secret` | Telegram `secret_token` / `X-Telegram-Bot-Api-Secret-Token` (minted if missing) |
 | `public-url` | Public HTTPS base for `setWebhook` (cloudflared or smee channel root) |
