@@ -241,3 +241,10 @@ Paste connector instructions from [SETUP.md](./SETUP.md#mcp-instructions-paste).
 ## License
 
 MIT (private package by default).
+
+## Surviving box reboots
+
+This box has no systemd or cron, and nothing runs at boot except a hook in `~/.bashrc` (it runs when any bash starts, including agent shells).
+- `scripts/start-all-tenants.sh` loops over `$TELEGRAM_MCP_HOME/agents/*/` (default `~/.local/telegram-mcp`), and for each with `port` and `token` files starts `scripts/supervisor.sh` unless its supervisor is alive and `/healthz` is ok. It is idempotent and prints no secrets.
+- `start-all-tenants.sh --watch` starts one background loop (pidfile `watch.pid`) that repeats the pass every 300s (`TELEGRAM_MCP_WATCH_INTERVAL`).
+- `~/.bashrc` carries a `telegram-mcp tenants autostart` block that runs both. Limit: after a reboot it only fires when something opens a bash shell (agent Shell call, desktop terminal), as with the WhatsApp bridge hook.
